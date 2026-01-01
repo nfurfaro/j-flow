@@ -1,0 +1,42 @@
+# jflow configuration file
+# Place this file in your repository root
+
+[stack]
+# Revset defining your stack
+# Default: "::@ ~ ::main@origin"
+revset = "::@ ~ ::main@origin"
+
+# Default branch name
+main_branch = "main"
+
+# Remote name
+remote = "origin"
+
+[github]
+# Use gh CLI or API token
+# Options: "gh-cli", "api-token"
+method = "gh-cli"
+
+# API token (only if method = "api-token")
+# token = "ghp_..."
+
+# Add stack context to PR descriptions
+stack_context = true
+
+[display]
+# Theme: catppuccin, nord, dracula, default
+theme = "catppuccin"
+
+# Show git commit hashes alongside change IDs
+show_commit_ids = false
+
+# Icon style: unicode, ascii
+icons = "unicode"
+
+[bookmarks]
+# Prefix for auto-created bookmarks
+# Example: "jf/" creates bookmarks like "jf/my-feature"
+prefix = "jf/"
+
+# Automatically cleanup merged bookmarks
+auto_cleanup = true

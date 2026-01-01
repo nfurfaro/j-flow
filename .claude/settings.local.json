@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mdbook serve)",
+      "WebFetch(domain:github.com)",
+      "Bash(/Users/nick/dev/jflow-workspace/jflow/target/release/jf up:*)",
+      "Bash(/Users/nick/dev/jflow-workspace/jflow/target/release/jf land:*)",
+      "Bash(cat:*)",
+      "Bash(/Users/nick/dev/jflow-workspace/jflow/target/release/jf status:*)",
+      "Bash(jj bookmark create:*)",
+      "Bash(jj git push:*)",
+      "Bash(jj log:*)",
+      "Bash(jj bookmark:*)",
+      "Bash(jj help:*)",
+      "Bash(cargo build:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

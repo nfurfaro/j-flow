@@ -27,6 +27,9 @@ pub fn run(
         &config.github.push_style
     };
 
+    // Ensure trunk branch exists on remote
+    ensure_trunk_exists(config, &renderer)?;
+
     // Get the changes to push
     let revset = revision.map(|r| r.to_string()).unwrap_or_else(|| config.stack_revset());
     let changes = jj::query_changes(&revset)?;
@@ -126,6 +129,98 @@ pub fn run(
     }
 
     renderer.success("Done!");
+    Ok(())
+}
+
+/// Ensure the trunk branch (e.g., main) exists on the remote.
+/// If there's no main@origin, create it from the root of the stack.
+fn ensure_trunk_exists(config: &Config, renderer: &Renderer) -> Result<()> {
+    let trunk = &config.remote.trunk;
+    let remote = &config.remote.name;
+    let trunk_ref = format!("{}@{}", trunk, remote);
+
+    // Check if trunk@remote exists
+    let result = jj::run_jj(&["log", "-r", &trunk_ref, "--limit", "1", "--no-graph"]);
+    if result.is_ok() {
+        // Trunk exists on remote, nothing to do
+        return Ok(());
+    }
+
+    // Trunk doesn't exist on remote - find the base of the stack and create it
+    renderer.info(&format!("No {} branch on remote, creating it...", trunk));
+
+    // Find the root commit(s) that our stack is based on
+    // This is the commit just before our stack starts
+    let stack_revset = config.stack_revset();
+
+    // Get the parents of the stack base (commits that are ancestors of stack but not in stack)
+    // We want: roots(stack)- which gives us the parent of the stack root
+    let base_revset = format!("roots({})~", stack_revset);
+
+    let base_result = jj::run_jj(&[
+        "log", "-r", &base_revset,
+        "--no-graph", "-T", "change_id", "--limit", "1"
+    ]);
+
+    let base_change_id = match base_result {
+        Ok(output) if !output.trim().is_empty() => output.trim().to_string(),
+        _ => {
+            // No base found - stack might start from root
+            // In this case, we need to find the first commit in the stack
+            // and create main pointing to its parent (which would be root)
+            let root_result = jj::run_jj(&[
+                "log", "-r", &format!("roots({})", stack_revset),
+                "--no-graph", "-T", "change_id", "--limit", "1"
+            ])?;
+            let stack_root = root_result.trim();
+            if stack_root.is_empty() {
+                anyhow::bail!("Cannot determine stack base for creating {} branch", trunk);
+            }
+            // Get the parent of the stack root
+            let short_id = &stack_root[..8.min(stack_root.len())];
+            let parent_result = jj::run_jj(&[
+                "log", "-r", &format!("{}-", short_id),
+                "--no-graph", "-T", "change_id", "--limit", "1"
+            ])?;
+            parent_result.trim().to_string()
+        }
+    };
+
+    if base_change_id.is_empty() || base_change_id == "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz" {
+        // Stack is based on root() - we need an initial commit for main
+        // This means the user's first commit should become main
+        renderer.info("Stack starts from root - using first commit as main branch");
+
+        // Get the first commit in the stack
+        let first_commit = jj::run_jj(&[
+            "log", "-r", &format!("roots({})", stack_revset),
+            "--no-graph", "-T", "change_id", "--limit", "1"
+        ])?;
+        let first_id = first_commit.trim();
+
+        if first_id.is_empty() {
+            anyhow::bail!("No commits found to create {} branch", trunk);
+        }
+
+        // Create main bookmark at first commit and push
+        let short_id = &first_id[..8.min(first_id.len())];
+        // Use set instead of create in case bookmark already exists locally
+        let _ = jj::run_jj(&["bookmark", "create", trunk, "-r", short_id]);
+        let _ = jj::run_jj(&["bookmark", "set", trunk, "-r", short_id]);
+        jj::run_jj(&["git", "push", "--bookmark", trunk, "--allow-new"])?;
+        renderer.success(&format!("Created {} branch on {}", trunk, remote));
+
+        return Ok(());
+    }
+
+    // Create the trunk bookmark at the base
+    let short_base = &base_change_id[..8.min(base_change_id.len())];
+    // Use set instead of create in case bookmark already exists locally
+    let _ = jj::run_jj(&["bookmark", "create", trunk, "-r", short_base]);
+    let _ = jj::run_jj(&["bookmark", "set", trunk, "-r", short_base]);
+    jj::run_jj(&["git", "push", "--bookmark", trunk, "--allow-new"])?;
+    renderer.success(&format!("Created {} branch on {}", trunk, remote));
+
     Ok(())
 }
 

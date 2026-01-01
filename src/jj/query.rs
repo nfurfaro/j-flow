@@ -74,14 +74,14 @@ struct BookmarkEntry {
 /// Get all bookmarks with sync state
 fn query_bookmarks(remote_name: &str) -> Result<Vec<Bookmark>> {
     // Use jj template to get structured bookmark data
-    // Use tracked() to check if this is a tracked remote ref before accessing tracking counts
+    // Use self.tracking_present() to check if this is a tracked remote ref before accessing tracking counts
     let template = r#"concat(
         "{\"name\":\"", name, "\",",
         "\"remote\":", if(remote, concat("\"", remote, "\""), "null"), ",",
         "\"change_id\":", if(normal_target, concat("\"", normal_target.change_id().short(), "\""), "null"), ",",
         "\"synced\":", synced, ",",
-        "\"ahead\":", if(tracked(), tracking_ahead_count.exact(), "null"), ",",
-        "\"behind\":", if(tracked(), tracking_behind_count.exact(), "null"),
+        "\"ahead\":", if(self.tracking_present(), tracking_ahead_count.exact(), "null"), ",",
+        "\"behind\":", if(self.tracking_present(), tracking_behind_count.exact(), "null"),
         "}\n"
     )"#;
 

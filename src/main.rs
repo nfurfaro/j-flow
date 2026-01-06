@@ -67,6 +67,31 @@ enum Commands {
         #[arg(short, long)]
         remote: Option<String>,
     },
+
+    /// Reorder changes in the stack
+    Reorder {
+        /// Changes to reorder (in desired order, e.g., "abc def ghi")
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        changes: Vec<String>,
+
+        /// Invert (reverse) the stack order
+        #[arg(short, long)]
+        invert: bool,
+
+        /// Starting change for --invert (default: entire stack)
+        #[arg(short, long)]
+        from: Option<String>,
+    },
+
+    /// Sync work-in-progress between machines
+    Wip {
+        /// Subcommand: push, pull, clean (or none for status)
+        subcommand: Option<String>,
+
+        /// Force overwrite (push) or delete without PR check (clean)
+        #[arg(short, long)]
+        force: bool,
+    },
 }
 
 fn main() -> Result<()> {
@@ -110,6 +135,12 @@ fn main() -> Result<()> {
                 }
                 Commands::Pull { remote } => {
                     commands::pull::run(&config, remote.as_deref())?
+                }
+                Commands::Reorder { changes, invert, from } => {
+                    commands::reorder::run(&config, changes, invert, from.as_deref())?
+                }
+                Commands::Wip { subcommand, force } => {
+                    commands::wip::run(&config, subcommand.as_deref(), force)?
                 }
             }
         }

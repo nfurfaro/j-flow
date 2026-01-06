@@ -29,8 +29,8 @@ pub fn run(
     subcommand: Option<&str>,
     force: bool,
 ) -> Result<()> {
-    let theme = get_theme();
-    let icons = get_icon_set();
+    let theme = get_theme(&config.display.theme);
+    let icons = get_icon_set(&config.display.icons);
     let renderer = Renderer::new(theme, icons);
 
     match subcommand {
@@ -65,7 +65,7 @@ fn run_status(config: &Config, renderer: &Renderer) -> Result<()> {
     }
 
     // Get changes in the wip bookmark
-    let main_ref = config.main_branch_ref();
+    let main_ref = config.trunk_ref();
     let revset = format!("{}::({}) ~ ::{})", main_ref, remote_ref, main_ref);
     let changes = jj::query_changes(&revset)?;
 
@@ -113,7 +113,7 @@ fn run_push(config: &Config, renderer: &Renderer, force: bool) -> Result<()> {
         renderer.error(&format!("{} already exists on {}", bookmark, remote));
 
         // Show what's there
-        let main_ref = config.main_branch_ref();
+        let main_ref = config.trunk_ref();
         let existing_revset = format!("{}::({}) ~ ::({})", main_ref, remote_ref, main_ref);
         let existing_changes = jj::query_changes(&existing_revset)?;
 
@@ -205,7 +205,7 @@ fn run_pull(config: &Config, renderer: &Renderer) -> Result<()> {
     }
 
     // Get changes from wip
-    let main_ref = config.main_branch_ref();
+    let main_ref = config.trunk_ref();
     let wip_revset = format!("{}::({}) ~ ::({})", main_ref, remote_ref, main_ref);
     let wip_changes = jj::query_changes(&wip_revset)?;
 
@@ -233,7 +233,7 @@ fn run_pull(config: &Config, renderer: &Renderer) -> Result<()> {
     // Show the stack
     println!();
     let stack = jj::get_stack(&config.stack_revset(), &config.remote.name)?;
-    renderer.render_stack(&stack, &config.main_branch_ref());
+    renderer.render_stack(&stack, &config.trunk_ref());
 
     Ok(())
 }
@@ -254,7 +254,7 @@ fn run_clean(config: &Config, renderer: &Renderer, force: bool) -> Result<()> {
     }
 
     // Get changes in the wip bookmark
-    let main_ref = config.main_branch_ref();
+    let main_ref = config.trunk_ref();
     let wip_ref = if remote_exists { &remote_ref } else { &bookmark };
     let revset = format!("{}::({}) ~ ::({})", main_ref, wip_ref, main_ref);
     let changes = jj::query_changes(&revset)?;

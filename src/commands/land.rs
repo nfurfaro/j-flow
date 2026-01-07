@@ -106,6 +106,11 @@ fn find_merged_bookmarks(_config: &Config) -> Result<Vec<String>> {
             continue;
         }
 
+        // Skip already-deleted bookmarks
+        if line.contains("(deleted)") {
+            continue;
+        }
+
         // Extract bookmark name
         let bookmark = line
             .split(&[':', ' ', '\t'][..])
@@ -113,7 +118,7 @@ fn find_merged_bookmarks(_config: &Config) -> Result<Vec<String>> {
             .unwrap_or("")
             .trim();
 
-        if bookmark.is_empty() || bookmark.contains('@') || bookmark == "(deleted)" {
+        if bookmark.is_empty() || bookmark.contains('@') {
             continue;
         }
 

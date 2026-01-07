@@ -88,24 +88,38 @@ fn is_pr_merged(bookmark: &str) -> Result<bool> {
     Ok(false)
 }
 
-fn find_merged_bookmarks(config: &Config) -> Result<Vec<String>> {
-    // Get all bookmarks in our stack
-    let revset = format!("bookmarks() & ({})", config.stack_revset());
-    let changes = jj::query_changes(&revset)?;
+fn find_merged_bookmarks(_config: &Config) -> Result<Vec<String>> {
+    // Get all local bookmarks by parsing `jj bookmark list`
+    // We need to find bookmarks whose PRs are merged, regardless of where they point
+    let output = jj::run_jj(&["bookmark", "list"])?;
 
     let mut merged = Vec::new();
 
-    for change in changes {
-        for bookmark in &change.bookmarks {
-            // Skip remote-tracking bookmarks
-            if bookmark.contains('@') {
-                continue;
-            }
+    for line in output.lines() {
+        // Parse bookmark name (first word on line, before any ':' or whitespace)
+        // Lines look like: "update-land: rkmvnysy 0f03385b Update jf land"
+        // Or: "feat-reorder-wip (deleted)"
+        let line = line.trim();
 
-            // Check if this bookmark's PR is merged
-            if is_pr_merged(bookmark).unwrap_or(false) {
-                merged.push(bookmark.clone());
-            }
+        // Skip indented lines (they're remote tracking info like "@origin:")
+        if line.starts_with('@') {
+            continue;
+        }
+
+        // Extract bookmark name
+        let bookmark = line
+            .split(&[':', ' ', '\t'][..])
+            .next()
+            .unwrap_or("")
+            .trim();
+
+        if bookmark.is_empty() || bookmark.contains('@') || bookmark == "(deleted)" {
+            continue;
+        }
+
+        // Check if this bookmark's PR is merged
+        if is_pr_merged(bookmark).unwrap_or(false) {
+            merged.push(bookmark.to_string());
         }
     }
 

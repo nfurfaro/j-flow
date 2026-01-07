@@ -60,6 +60,11 @@ pub fn run(config: &Config, bookmark: Option<&str>, dry_run: bool) -> Result<()>
     }
 
     renderer.success("Cleanup complete!");
+
+    // Create a fresh empty commit for new work
+    renderer.info("Creating fresh commit for new work...");
+    jj::run_jj(&["new"])?;
+
     println!();
 
     // Show updated stack

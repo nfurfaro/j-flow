@@ -79,7 +79,7 @@ fn query_bookmarks(remote_name: &str) -> Result<Vec<Bookmark>> {
         "{\"name\":\"", name, "\",",
         "\"remote\":", if(remote, concat("\"", remote, "\""), "null"), ",",
         "\"change_id\":", if(normal_target, concat("\"", normal_target.change_id().short(), "\""), "null"), ",",
-        "\"synced\":", synced, ",",
+        "\"synced\":", self.synced(), ",",
         "\"ahead\":", if(self.tracking_present(), tracking_ahead_count.exact(), "null"), ",",
         "\"behind\":", if(self.tracking_present(), tracking_behind_count.exact(), "null"),
         "}\n"

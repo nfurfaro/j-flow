@@ -23,6 +23,10 @@ enum Commands {
         /// Skip interactive prompts and use defaults
         #[arg(short, long)]
         defaults: bool,
+
+        /// Create a GitHub repository (uses gh CLI)
+        #[arg(long)]
+        github: bool,
     },
 
     /// Show your stack with PR status
@@ -98,9 +102,9 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Some(Commands::Init { defaults }) => {
+        Some(Commands::Init { defaults, github }) => {
             // Init doesn't need existing config
-            commands::init::run(defaults)?
+            commands::init::run(defaults, github)?
         }
         None => {
             // No command = run status

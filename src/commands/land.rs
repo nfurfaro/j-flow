@@ -80,14 +80,26 @@ pub fn run(config: &Config, bookmark: Option<&str>, dry_run: bool) -> Result<()>
 
     renderer.success("Cleanup complete!");
 
-    // Check if we need to create a fresh commit
-    // Only create new if current commit has content (description or changes)
-    let current_status = jj::run_jj(&["log", "-r", "@", "--no-graph", "-T", "concat(description, if(empty, \"\", \"has-changes\"))"])?;
-    let needs_new_commit = !current_status.trim().is_empty();
+    // Abandon any empty commits in the stack that have no description
+    // This cleans up orphaned empty commits left after landing
+    let empty_commits = jj::run_jj(&[
+        "log",
+        "-r",
+        &format!("({}) & empty() & description(exact:\"\")", config.stack_revset()),
+        "--no-graph",
+        "-T",
+        "change_id ++ \"\\n\"",
+    ])?;
 
-    if needs_new_commit {
-        renderer.info("Creating fresh commit for new work...");
-        jj::run_jj(&["new"])?;
+    for change_id in empty_commits.lines() {
+        let change_id = change_id.trim();
+        if !change_id.is_empty() && change_id != "@" {
+            // Don't abandon current working copy
+            let is_working_copy = jj::run_jj(&["log", "-r", "@", "--no-graph", "-T", "change_id"])?;
+            if change_id != is_working_copy.trim() {
+                let _ = jj::run_jj(&["abandon", change_id]);
+            }
+        }
     }
 
     println!();

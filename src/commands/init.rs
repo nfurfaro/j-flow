@@ -82,7 +82,7 @@ pub fn run(use_defaults: bool, create_github_repo: bool, force_local: bool) -> R
     // Show next steps
     println!("\n{} Next steps:", icons.lightbulb);
     println!("  1. View your stack: jf status");
-    println!("  2. Push to GitHub: jf up");
+    println!("  2. Push to GitHub: jf push");
     println!("  3. Edit config: .jflow.toml");
     println!();
 

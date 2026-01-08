@@ -62,7 +62,7 @@ pub fn query_changes(revset: &str) -> Result<Vec<Change>> {
 
 /// Raw bookmark entry from jj
 #[derive(Debug, serde::Deserialize)]
-struct BookmarkEntry {
+pub struct BookmarkEntry {
     name: String,
     remote: Option<String>,
     change_id: Option<String>,
@@ -227,4 +227,486 @@ pub fn check_jj_available() -> Result<()> {
 pub fn create_bookmark(name: &str, change_id: &str) -> Result<()> {
     run_jj(&["bookmark", "create", name, "-r", change_id])?;
     Ok(())
+}
+
+/// Parse changes from jj log JSON output (for testing)
+pub fn parse_changes_output(output: &str) -> Vec<Change> {
+    let mut changes = Vec::new();
+    for line in output.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        if let Ok(change) = serde_json::from_str::<Change>(line) {
+            changes.push(change);
+        }
+    }
+    changes
+}
+
+/// Parse bookmark entries from jj bookmark list JSON output (for testing)
+pub fn parse_bookmark_entries(output: &str) -> Vec<BookmarkEntry> {
+    let mut entries = Vec::new();
+    for line in output.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        if let Ok(entry) = serde_json::from_str::<BookmarkEntry>(line) {
+            entries.push(entry);
+        }
+    }
+    entries
+}
+
+/// Compute sync state from bookmark entries (for testing)
+pub fn compute_sync_state(
+    _local: &BookmarkEntry,
+    remote: Option<&BookmarkEntry>,
+) -> BookmarkSyncState {
+    match remote {
+        Some(remote) => {
+            let ahead = remote.behind.unwrap_or(0);
+            let behind = remote.ahead.unwrap_or(0);
+
+            if remote.synced {
+                BookmarkSyncState::Synced
+            } else if ahead > 0 && behind > 0 {
+                BookmarkSyncState::Diverged {
+                    local_ahead: ahead,
+                    remote_ahead: behind,
+                    fork_point: None, // Can't compute without jj access
+                }
+            } else if ahead > 0 {
+                BookmarkSyncState::Ahead { count: ahead }
+            } else if behind > 0 {
+                BookmarkSyncState::Behind { count: behind }
+            } else {
+                BookmarkSyncState::Synced
+            }
+        }
+        None => BookmarkSyncState::LocalOnly,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_changes_output_single() {
+        let output = r#"{"change_id":"abc123","commit_id":"def456","description":"Add feature","author":{"name":"Test","email":"test@test.com"},"bookmarks":["main"]}"#;
+
+        let changes = parse_changes_output(output);
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].change_id, "abc123");
+        assert_eq!(changes[0].description, "Add feature");
+        assert_eq!(changes[0].bookmarks, vec!["main"]);
+    }
+
+    #[test]
+    fn test_parse_changes_output_multiple() {
+        let output = r#"{"change_id":"abc123","commit_id":"def456","description":"First","author":{"name":"","email":""},"bookmarks":[]}
+{"change_id":"xyz789","commit_id":"uvw012","description":"Second","author":{"name":"","email":""},"bookmarks":["feature"]}"#;
+
+        let changes = parse_changes_output(output);
+        assert_eq!(changes.len(), 2);
+        assert_eq!(changes[0].change_id, "abc123");
+        assert_eq!(changes[1].change_id, "xyz789");
+    }
+
+    #[test]
+    fn test_parse_changes_output_empty() {
+        let output = "";
+        let changes = parse_changes_output(output);
+        assert!(changes.is_empty());
+    }
+
+    #[test]
+    fn test_parse_changes_output_with_blank_lines() {
+        let output = r#"
+{"change_id":"abc123","commit_id":"def456","description":"Test","author":{"name":"","email":""},"bookmarks":[]}
+
+"#;
+        let changes = parse_changes_output(output);
+        assert_eq!(changes.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_changes_output_skips_invalid() {
+        let output = r#"{"change_id":"abc123","commit_id":"def456","description":"Valid","author":{"name":"","email":""},"bookmarks":[]}
+not valid json
+{"change_id":"xyz789","commit_id":"uvw012","description":"Also valid","author":{"name":"","email":""},"bookmarks":[]}"#;
+
+        let changes = parse_changes_output(output);
+        assert_eq!(changes.len(), 2);
+    }
+
+    #[test]
+    fn test_parse_bookmark_entries_local() {
+        let output = r#"{"name":"feature","remote":null,"change_id":"abc123","synced":false,"ahead":null,"behind":null}"#;
+
+        let entries = parse_bookmark_entries(output);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].name, "feature");
+        assert!(entries[0].remote.is_none());
+        assert_eq!(entries[0].change_id, Some("abc123".to_string()));
+    }
+
+    #[test]
+    fn test_parse_bookmark_entries_remote() {
+        let output = r#"{"name":"feature","remote":"origin","change_id":"abc123","synced":true,"ahead":0,"behind":0}"#;
+
+        let entries = parse_bookmark_entries(output);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].remote, Some("origin".to_string()));
+        assert!(entries[0].synced);
+    }
+
+    #[test]
+    fn test_parse_bookmark_entries_with_ahead_behind() {
+        let output = r#"{"name":"feature","remote":"origin","change_id":"abc123","synced":false,"ahead":3,"behind":2}"#;
+
+        let entries = parse_bookmark_entries(output);
+        assert_eq!(entries[0].ahead, Some(3));
+        assert_eq!(entries[0].behind, Some(2));
+    }
+
+    #[test]
+    fn test_compute_sync_state_synced() {
+        let local = BookmarkEntry {
+            name: "feature".to_string(),
+            remote: None,
+            change_id: Some("abc".to_string()),
+            synced: false,
+            ahead: None,
+            behind: None,
+        };
+        let remote = BookmarkEntry {
+            name: "feature".to_string(),
+            remote: Some("origin".to_string()),
+            change_id: Some("abc".to_string()),
+            synced: true,
+            ahead: Some(0),
+            behind: Some(0),
+        };
+
+        let state = compute_sync_state(&local, Some(&remote));
+        assert!(matches!(state, BookmarkSyncState::Synced));
+    }
+
+    #[test]
+    fn test_compute_sync_state_ahead() {
+        let local = BookmarkEntry {
+            name: "feature".to_string(),
+            remote: None,
+            change_id: Some("abc".to_string()),
+            synced: false,
+            ahead: None,
+            behind: None,
+        };
+        let remote = BookmarkEntry {
+            name: "feature".to_string(),
+            remote: Some("origin".to_string()),
+            change_id: Some("xyz".to_string()),
+            synced: false,
+            ahead: Some(0),
+            behind: Some(3), // remote behind = local ahead
+        };
+
+        let state = compute_sync_state(&local, Some(&remote));
+        assert!(matches!(state, BookmarkSyncState::Ahead { count: 3 }));
+    }
+
+    #[test]
+    fn test_compute_sync_state_behind() {
+        let local = BookmarkEntry {
+            name: "feature".to_string(),
+            remote: None,
+            change_id: Some("abc".to_string()),
+            synced: false,
+            ahead: None,
+            behind: None,
+        };
+        let remote = BookmarkEntry {
+            name: "feature".to_string(),
+            remote: Some("origin".to_string()),
+            change_id: Some("xyz".to_string()),
+            synced: false,
+            ahead: Some(2), // remote ahead = local behind
+            behind: Some(0),
+        };
+
+        let state = compute_sync_state(&local, Some(&remote));
+        assert!(matches!(state, BookmarkSyncState::Behind { count: 2 }));
+    }
+
+    #[test]
+    fn test_compute_sync_state_diverged() {
+        let local = BookmarkEntry {
+            name: "feature".to_string(),
+            remote: None,
+            change_id: Some("abc".to_string()),
+            synced: false,
+            ahead: None,
+            behind: None,
+        };
+        let remote = BookmarkEntry {
+            name: "feature".to_string(),
+            remote: Some("origin".to_string()),
+            change_id: Some("xyz".to_string()),
+            synced: false,
+            ahead: Some(2),
+            behind: Some(3),
+        };
+
+        let state = compute_sync_state(&local, Some(&remote));
+        assert!(matches!(
+            state,
+            BookmarkSyncState::Diverged {
+                local_ahead: 3,
+                remote_ahead: 2,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn test_compute_sync_state_local_only() {
+        let local = BookmarkEntry {
+            name: "feature".to_string(),
+            remote: None,
+            change_id: Some("abc".to_string()),
+            synced: false,
+            ahead: None,
+            behind: None,
+        };
+
+        let state = compute_sync_state(&local, None);
+        assert!(matches!(state, BookmarkSyncState::LocalOnly));
+    }
+
+    // === Edge Case Tests ===
+
+    #[test]
+    fn test_parse_changes_output_whitespace_only() {
+        let output = "   \n\t\n   ";
+        let changes = parse_changes_output(output);
+        assert!(changes.is_empty());
+    }
+
+    #[test]
+    fn test_parse_changes_output_many_blank_lines() {
+        let output = r#"
+
+
+{"change_id":"abc","commit_id":"def","description":"Test","author":{"name":"","email":""},"bookmarks":[]}
+
+
+
+{"change_id":"xyz","commit_id":"uvw","description":"Test2","author":{"name":"","email":""},"bookmarks":[]}
+
+
+"#;
+        let changes = parse_changes_output(output);
+        assert_eq!(changes.len(), 2);
+    }
+
+    #[test]
+    fn test_parse_changes_output_unicode() {
+        let output = r#"{"change_id":"abc","commit_id":"def","description":"添加功能 🎉","author":{"name":"张三","email":"zhangsan@test.com"},"bookmarks":["功能分支"]}"#;
+        let changes = parse_changes_output(output);
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].description, "添加功能 🎉");
+        assert_eq!(changes[0].author.name, "张三");
+        assert_eq!(changes[0].bookmarks, vec!["功能分支"]);
+    }
+
+    #[test]
+    fn test_parse_changes_output_empty_description() {
+        let output = r#"{"change_id":"abc","commit_id":"def","description":"","author":{"name":"","email":""},"bookmarks":[]}"#;
+        let changes = parse_changes_output(output);
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].description, "");
+    }
+
+    #[test]
+    fn test_parse_changes_output_special_chars_in_description() {
+        let output = r#"{"change_id":"abc","commit_id":"def","description":"Fix \"bug\" with \\path","author":{"name":"O'Brien","email":"test@test.com"},"bookmarks":[]}"#;
+        let changes = parse_changes_output(output);
+        assert_eq!(changes.len(), 1);
+        assert!(changes[0].description.contains("\"bug\""));
+        assert!(changes[0].description.contains("\\path"));
+    }
+
+    #[test]
+    fn test_parse_changes_output_many_bookmarks() {
+        let bookmarks: Vec<String> = (0..50).map(|i| format!("bookmark-{}", i)).collect();
+        let bookmarks_json = serde_json::to_string(&bookmarks).unwrap();
+        let output = format!(
+            r#"{{"change_id":"abc","commit_id":"def","description":"Test","author":{{"name":"","email":""}},"bookmarks":{}}}"#,
+            bookmarks_json
+        );
+        let changes = parse_changes_output(&output);
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].bookmarks.len(), 50);
+    }
+
+    #[test]
+    fn test_parse_changes_output_truncated_json() {
+        // Incomplete JSON should be skipped
+        let output = r#"{"change_id":"abc","commit_id":"def","description":"Valid","author":{"name":"","email":""},"bookmarks":[]}
+{"change_id":"xyz","commit_id":"#;
+        let changes = parse_changes_output(output);
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].change_id, "abc");
+    }
+
+    #[test]
+    fn test_parse_bookmark_entries_empty_change_id() {
+        let output = r#"{"name":"feature","remote":null,"change_id":null,"synced":false,"ahead":null,"behind":null}"#;
+        let entries = parse_bookmark_entries(output);
+        assert_eq!(entries.len(), 1);
+        assert!(entries[0].change_id.is_none());
+    }
+
+    #[test]
+    fn test_parse_bookmark_entries_at_git_remote() {
+        // jj also shows @git entries
+        let output = r#"{"name":"main","remote":"git","change_id":"abc123","synced":true,"ahead":0,"behind":0}"#;
+        let entries = parse_bookmark_entries(output);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].remote, Some("git".to_string()));
+    }
+
+    #[test]
+    fn test_parse_bookmark_entries_multiple_remotes() {
+        let output = r#"{"name":"main","remote":null,"change_id":"abc123","synced":false,"ahead":null,"behind":null}
+{"name":"main","remote":"origin","change_id":"abc123","synced":true,"ahead":0,"behind":0}
+{"name":"main","remote":"upstream","change_id":"xyz789","synced":false,"ahead":2,"behind":1}"#;
+        let entries = parse_bookmark_entries(output);
+        assert_eq!(entries.len(), 3);
+        // One local, two remotes
+        let local_count = entries.iter().filter(|e| e.remote.is_none()).count();
+        let remote_count = entries.iter().filter(|e| e.remote.is_some()).count();
+        assert_eq!(local_count, 1);
+        assert_eq!(remote_count, 2);
+    }
+
+    #[test]
+    fn test_parse_bookmark_entries_special_bookmark_names() {
+        let output = r#"{"name":"feature/add-login","remote":null,"change_id":"abc","synced":false,"ahead":null,"behind":null}
+{"name":"fix-bug#123","remote":null,"change_id":"def","synced":false,"ahead":null,"behind":null}
+{"name":"user@work","remote":null,"change_id":"ghi","synced":false,"ahead":null,"behind":null}"#;
+        let entries = parse_bookmark_entries(output);
+        assert_eq!(entries.len(), 3);
+        assert_eq!(entries[0].name, "feature/add-login");
+        assert_eq!(entries[1].name, "fix-bug#123");
+        assert_eq!(entries[2].name, "user@work");
+    }
+
+    #[test]
+    fn test_parse_bookmark_entries_large_ahead_behind() {
+        let output = r#"{"name":"feature","remote":"origin","change_id":"abc","synced":false,"ahead":1000,"behind":500}"#;
+        let entries = parse_bookmark_entries(output);
+        assert_eq!(entries[0].ahead, Some(1000));
+        assert_eq!(entries[0].behind, Some(500));
+    }
+
+    #[test]
+    fn test_compute_sync_state_zero_counts_not_synced() {
+        // Edge case: synced=false but ahead=0, behind=0
+        let local = BookmarkEntry {
+            name: "feature".to_string(),
+            remote: None,
+            change_id: Some("abc".to_string()),
+            synced: false,
+            ahead: None,
+            behind: None,
+        };
+        let remote = BookmarkEntry {
+            name: "feature".to_string(),
+            remote: Some("origin".to_string()),
+            change_id: Some("abc".to_string()),
+            synced: false, // Not synced flag
+            ahead: Some(0),
+            behind: Some(0),
+        };
+
+        let state = compute_sync_state(&local, Some(&remote));
+        // Should treat 0/0 with synced=false as Synced
+        assert!(matches!(state, BookmarkSyncState::Synced));
+    }
+
+    #[test]
+    fn test_compute_sync_state_only_ahead() {
+        let local = BookmarkEntry {
+            name: "feature".to_string(),
+            remote: None,
+            change_id: Some("abc".to_string()),
+            synced: false,
+            ahead: None,
+            behind: None,
+        };
+        let remote = BookmarkEntry {
+            name: "feature".to_string(),
+            remote: Some("origin".to_string()),
+            change_id: Some("xyz".to_string()),
+            synced: false,
+            ahead: None, // No ahead info
+            behind: Some(5),
+        };
+
+        let state = compute_sync_state(&local, Some(&remote));
+        assert!(matches!(state, BookmarkSyncState::Ahead { count: 5 }));
+    }
+
+    #[test]
+    fn test_compute_sync_state_only_behind() {
+        let local = BookmarkEntry {
+            name: "feature".to_string(),
+            remote: None,
+            change_id: Some("abc".to_string()),
+            synced: false,
+            ahead: None,
+            behind: None,
+        };
+        let remote = BookmarkEntry {
+            name: "feature".to_string(),
+            remote: Some("origin".to_string()),
+            change_id: Some("xyz".to_string()),
+            synced: false,
+            ahead: Some(3),
+            behind: None, // No behind info
+        };
+
+        let state = compute_sync_state(&local, Some(&remote));
+        assert!(matches!(state, BookmarkSyncState::Behind { count: 3 }));
+    }
+
+    #[test]
+    fn test_compute_sync_state_large_divergence() {
+        let local = BookmarkEntry {
+            name: "feature".to_string(),
+            remote: None,
+            change_id: Some("abc".to_string()),
+            synced: false,
+            ahead: None,
+            behind: None,
+        };
+        let remote = BookmarkEntry {
+            name: "feature".to_string(),
+            remote: Some("origin".to_string()),
+            change_id: Some("xyz".to_string()),
+            synced: false,
+            ahead: Some(1000),
+            behind: Some(500),
+        };
+
+        let state = compute_sync_state(&local, Some(&remote));
+        if let BookmarkSyncState::Diverged { local_ahead, remote_ahead, .. } = state {
+            assert_eq!(local_ahead, 500);
+            assert_eq!(remote_ahead, 1000);
+        } else {
+            panic!("Expected Diverged state");
+        }
+    }
 }

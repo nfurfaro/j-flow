@@ -134,3 +134,68 @@ pub fn get_icon_set(style: &str) -> &'static IconSet {
         _ => &UNICODE_ICONS,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_icon_set_unicode() {
+        let icons = get_icon_set("unicode");
+        assert_eq!(icons.working, "●");
+        assert_eq!(icons.change, "○");
+        assert_eq!(icons.main, "◆");
+    }
+
+    #[test]
+    fn test_get_icon_set_ascii() {
+        let icons = get_icon_set("ascii");
+        assert_eq!(icons.working, "*");
+        assert_eq!(icons.change, "o");
+        assert_eq!(icons.main, "#");
+    }
+
+    #[test]
+    fn test_get_icon_set_nerdfont() {
+        let icons = get_icon_set("nerdfont");
+        // Nerd font uses special unicode code points
+        assert!(!icons.working.is_empty());
+    }
+
+    #[test]
+    fn test_get_icon_set_nerd_alias() {
+        let icons1 = get_icon_set("nerdfont");
+        let icons2 = get_icon_set("nerd");
+        assert_eq!(icons1.working, icons2.working);
+    }
+
+    #[test]
+    fn test_get_icon_set_unknown_returns_unicode() {
+        let icons = get_icon_set("unknown");
+        assert_eq!(icons.working, "●");
+    }
+
+    #[test]
+    fn test_icon_sets_have_all_icons() {
+        for icons in [&UNICODE_ICONS, &ASCII_ICONS, &NERDFONT_ICONS] {
+            // Verify all fields are non-empty
+            assert!(!icons.working.is_empty());
+            assert!(!icons.change.is_empty());
+            assert!(!icons.main.is_empty());
+            assert!(!icons.pipe.is_empty());
+            assert!(!icons.bookmark.is_empty());
+            assert!(!icons.lightbulb.is_empty());
+            assert!(!icons.info.is_empty());
+            assert!(!icons.error.is_empty());
+        }
+    }
+
+    #[test]
+    fn test_ascii_icons_are_ascii() {
+        let icons = &ASCII_ICONS;
+        assert!(icons.working.is_ascii());
+        assert!(icons.change.is_ascii());
+        assert!(icons.main.is_ascii());
+        assert!(icons.pipe.is_ascii());
+    }
+}

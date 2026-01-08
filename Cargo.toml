@@ -27,6 +27,9 @@ console = "0.15"
 anyhow = "1.0"
 thiserror = "1.0"
 
+# Filesystem paths
+dirs = "5.0"
+
 # Async runtime (for future GitHub API)
 tokio = { version = "1.35", features = ["full"], optional = true }
 
@@ -36,6 +39,11 @@ octocrab = { version = "0.38", optional = true }
 [features]
 default = []
 github = ["tokio", "octocrab"]
+
+[dev-dependencies]
+tempfile = "3.10"
+assert_cmd = "2.0"
+predicates = "3.1"
 
 [profile.release]
 strip = true

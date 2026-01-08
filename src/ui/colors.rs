@@ -96,3 +96,57 @@ pub fn get_theme(name: &str) -> &'static Theme {
         _ => &DEFAULT,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_theme_catppuccin() {
+        let theme = get_theme("catppuccin");
+        // Catppuccin green is #a6e3a1
+        assert!(matches!(theme.green, Color::TrueColor { r: 166, g: 227, b: 161 }));
+    }
+
+    #[test]
+    fn test_get_theme_nord() {
+        let theme = get_theme("nord");
+        // Nord green is #a3be8c
+        assert!(matches!(theme.green, Color::TrueColor { r: 163, g: 190, b: 140 }));
+    }
+
+    #[test]
+    fn test_get_theme_dracula() {
+        let theme = get_theme("dracula");
+        // Dracula green is #50fa7b
+        assert!(matches!(theme.green, Color::TrueColor { r: 80, g: 250, b: 123 }));
+    }
+
+    #[test]
+    fn test_get_theme_default() {
+        let theme = get_theme("default");
+        assert!(matches!(theme.green, Color::Green));
+    }
+
+    #[test]
+    fn test_get_theme_unknown_returns_default() {
+        let theme = get_theme("unknown_theme");
+        assert!(matches!(theme.green, Color::Green));
+    }
+
+    #[test]
+    fn test_themes_have_all_colors() {
+        // Verify all themes have properly defined colors
+        for theme in [&CATPPUCCIN, &NORD, &DRACULA, &DEFAULT] {
+            // Just access each field to ensure they exist
+            let _ = theme.text;
+            let _ = theme.green;
+            let _ = theme.yellow;
+            let _ = theme.red;
+            let _ = theme.blue;
+            let _ = theme.mauve;
+            let _ = theme.teal;
+            let _ = theme.overlay;
+        }
+    }
+}

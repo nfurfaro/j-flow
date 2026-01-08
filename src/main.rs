@@ -27,6 +27,10 @@ enum Commands {
         /// Create a GitHub repository (uses gh CLI)
         #[arg(long)]
         github: bool,
+
+        /// Force creating local .jflow.toml even if global config exists
+        #[arg(short, long)]
+        local: bool,
     },
 
     /// Show your stack with PR status
@@ -65,7 +69,7 @@ enum Commands {
         dry_run: bool,
     },
 
-    /// Pull trunk and rebase your stack
+    /// Pull from remote and rebase your stack
     Pull {
         /// Remote to pull from
         #[arg(short, long)]
@@ -102,9 +106,9 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Some(Commands::Init { defaults, github }) => {
+        Some(Commands::Init { defaults, github, local }) => {
             // Init doesn't need existing config
-            commands::init::run(defaults, github)?
+            commands::init::run(defaults, github, local)?
         }
         None => {
             // No command = run status

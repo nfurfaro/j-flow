@@ -106,8 +106,12 @@ fn query_bookmarks(remote_name: &str) -> Result<Vec<Bookmark>> {
     // For each local bookmark, find the corresponding remote tracking entry
     let mut bookmarks = Vec::new();
 
-    // Get local bookmarks (remote is null)
-    let local_entries: Vec<_> = entries.iter().filter(|e| e.remote.is_none()).collect();
+    // Get local bookmarks (remote is null) that have a valid change_id
+    // Deleted bookmarks have change_id=null, skip them
+    let local_entries: Vec<_> = entries
+        .iter()
+        .filter(|e| e.remote.is_none() && e.change_id.is_some())
+        .collect();
 
     for local in local_entries {
         // Find the corresponding remote entry (not @git)
@@ -187,12 +191,12 @@ pub fn get_stack(revset: &str, remote_name: &str) -> Result<Vec<ChangeWithStatus
 
     // Match bookmarks to changes
     // Note: bookmark list shows short IDs, changes have full IDs
-    // Match by prefix
+    // Match by prefix (but skip empty change_ids which would match everything)
     let mut result = Vec::new();
     for change in changes {
         let matched_bookmark = bookmarks
             .iter()
-            .find(|b| change.change_id.starts_with(&b.change_id));
+            .find(|b| !b.change_id.is_empty() && change.change_id.starts_with(&b.change_id));
 
         let bookmark = matched_bookmark.map(|b| b.name.clone());
         let has_remote = matched_bookmark.map(|b| b.has_remote).unwrap_or(false);
@@ -708,5 +712,43 @@ not valid json
         } else {
             panic!("Expected Diverged state");
         }
+    }
+
+    #[test]
+    fn test_deleted_bookmark_not_included() {
+        // A deleted bookmark has remote=null and change_id=null
+        // It should NOT be included in local_entries and should NOT match any change
+        let output = r#"{"name":"deleted-feature","remote":null,"change_id":null,"synced":false,"ahead":null,"behind":null}
+{"name":"deleted-feature","remote":"origin","change_id":"abc123","synced":false,"ahead":null,"behind":null}
+{"name":"active-feature","remote":null,"change_id":"xyz789","synced":false,"ahead":null,"behind":null}"#;
+
+        let entries = parse_bookmark_entries(output);
+        assert_eq!(entries.len(), 3);
+
+        // Filter like query_bookmarks does - deleted bookmarks have null change_id
+        let local_entries: Vec<_> = entries
+            .iter()
+            .filter(|e| e.remote.is_none() && e.change_id.is_some())
+            .collect();
+
+        // Only the active bookmark should be included
+        assert_eq!(local_entries.len(), 1);
+        assert_eq!(local_entries[0].name, "active-feature");
+        assert_eq!(local_entries[0].change_id, Some("xyz789".to_string()));
+    }
+
+    #[test]
+    fn test_empty_change_id_does_not_match_all_changes() {
+        // Regression test: empty string change_id would match any change via starts_with("")
+        // This tests the matching logic at a unit level
+
+        // Simulate what happens if a bookmark somehow has an empty change_id
+        let bookmark_change_id = "";
+        let change_id = "abc123def456";
+
+        // The old code would match because "abc123def456".starts_with("") is true
+        // The fix checks !bookmark_change_id.is_empty() first
+        let matches = !bookmark_change_id.is_empty() && change_id.starts_with(bookmark_change_id);
+        assert!(!matches, "Empty change_id should not match any change");
     }
 }

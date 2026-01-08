@@ -43,9 +43,28 @@ pub fn run(config: &Config, bookmark: Option<&str>, dry_run: bool) -> Result<()>
         return Ok(());
     }
 
-    // Delete merged bookmarks
+    // Delete merged bookmarks (both local and remote)
     for b in &merged_bookmarks {
         renderer.info(&format!("Deleting bookmark '{}'...", b));
+
+        // Delete remote branch on GitHub first
+        let delete_result = Command::new("git")
+            .args(["push", &config.remote.name, "--delete", b])
+            .output();
+
+        match delete_result {
+            Ok(output) if output.status.success() => {
+                renderer.info(&format!("Deleted remote branch '{}'", b));
+            }
+            Ok(_) => {
+                // Branch might already be deleted on remote (GitHub auto-deletes after merge)
+                renderer.info(&format!("Remote branch '{}' already deleted or not found", b));
+            }
+            Err(e) => {
+                renderer.info(&format!("Note: Could not delete remote branch: {}", e));
+            }
+        }
+
         // Delete local bookmark
         if let Err(e) = jj::run_jj(&["bookmark", "delete", b]) {
             renderer.info(&format!("Note: Could not delete local bookmark: {}", e));
@@ -61,9 +80,15 @@ pub fn run(config: &Config, bookmark: Option<&str>, dry_run: bool) -> Result<()>
 
     renderer.success("Cleanup complete!");
 
-    // Create a fresh empty commit for new work
-    renderer.info("Creating fresh commit for new work...");
-    jj::run_jj(&["new"])?;
+    // Check if we need to create a fresh commit
+    // Only create new if current commit has content (description or changes)
+    let current_status = jj::run_jj(&["log", "-r", "@", "--no-graph", "-T", "concat(description, if(empty, \"\", \"has-changes\"))"])?;
+    let needs_new_commit = !current_status.trim().is_empty();
+
+    if needs_new_commit {
+        renderer.info("Creating fresh commit for new work...");
+        jj::run_jj(&["new"])?;
+    }
 
     println!();
 

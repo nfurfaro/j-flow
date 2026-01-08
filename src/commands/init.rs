@@ -3,10 +3,11 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::Path;
 
+use crate::config::Config;
 use crate::jj;
 use crate::ui::{get_icon_set, get_theme, Renderer};
 
-pub fn run(use_defaults: bool, create_github_repo: bool) -> Result<()> {
+pub fn run(use_defaults: bool, create_github_repo: bool, force_local: bool) -> Result<()> {
     let theme = get_theme("default");
     let icons = get_icon_set("unicode");
     let renderer = Renderer::new(theme, icons);
@@ -23,34 +24,52 @@ pub fn run(use_defaults: bool, create_github_repo: bool) -> Result<()> {
         create_github_repository(&renderer)?;
     }
 
-    // Check if .jflow.toml already exists
+    // Check if local .jflow.toml already exists
     if Path::new(".jflow.toml").exists() {
         renderer.error(".jflow.toml already exists!");
         println!("To reconfigure, delete .jflow.toml and run 'jf init' again.");
         return Ok(());
     }
 
+    // Check if global config exists (unless --local is specified)
+    if !force_local {
+        let has_global_config = Config::global_config_path()
+            .map(|p| p.exists())
+            .unwrap_or(false);
+
+        if has_global_config {
+            renderer.success("Global config found at ~/.jflow.toml");
+            println!();
+            println!("jflow is ready to use with your global configuration.");
+            println!("Run 'jf status' to see your stack.");
+            println!();
+            println!("To create a local config that overrides global settings,");
+            println!("run 'jf init --local'.");
+            return Ok(());
+        }
+    }
+
     println!("Initializing jflow...\n");
 
     // Detect repository settings
-    let detected_trunk = detect_trunk_branch()?;
+    let detected_primary = detect_primary_branch()?;
     let detected_remote = detect_default_remote()?;
 
     // Get configuration from user or use defaults
-    let (trunk, remote, push_style, bookmark_prefix) = if use_defaults {
+    let (primary, remote, push_style, bookmark_prefix) = if use_defaults {
         renderer.info("Using default configuration");
         (
-            detected_trunk.unwrap_or_else(|| "main".to_string()),
+            detected_primary.unwrap_or_else(|| "main".to_string()),
             detected_remote.unwrap_or_else(|| "origin".to_string()),
             "squash".to_string(),
             String::new(),
         )
     } else {
-        get_interactive_config(detected_trunk, detected_remote)?
+        get_interactive_config(detected_primary, detected_remote)?
     };
 
     // Create .jflow.toml
-    let config_content = create_config_content(&trunk, &remote, &push_style, &bookmark_prefix);
+    let config_content = create_config_content(&primary, &remote, &push_style, &bookmark_prefix);
 
     fs::write(".jflow.toml", config_content).context("Failed to write .jflow.toml")?;
 
@@ -58,7 +77,7 @@ pub fn run(use_defaults: bool, create_github_repo: bool) -> Result<()> {
     println!();
 
     // Show summary
-    print_summary(&trunk, &remote, &push_style);
+    print_summary(&primary, &remote, &push_style);
 
     // Show next steps
     println!("\n{} Next steps:", icons.lightbulb);
@@ -74,7 +93,7 @@ fn is_jj_repo() -> bool {
     jj::run_jj(&["status"]).is_ok()
 }
 
-fn detect_trunk_branch() -> Result<Option<String>> {
+fn detect_primary_branch() -> Result<Option<String>> {
     // Try common branch names
     for branch in &["main", "master", "trunk"] {
         let remote_ref = format!("{}@origin", branch);
@@ -100,14 +119,14 @@ fn detect_default_remote() -> Result<Option<String>> {
 }
 
 fn get_interactive_config(
-    detected_trunk: Option<String>,
+    detected_primary: Option<String>,
     detected_remote: Option<String>,
 ) -> Result<(String, String, String, String)> {
     println!("Configuration (press Enter to use detected/default values)\n");
 
-    // Trunk branch
-    let trunk_default = detected_trunk.unwrap_or_else(|| "main".to_string());
-    let trunk = prompt("Main branch name", &trunk_default)?;
+    // Primary branch
+    let primary_default = detected_primary.unwrap_or_else(|| "main".to_string());
+    let primary = prompt("Primary branch name", &primary_default)?;
 
     // Remote
     let remote_default = detected_remote.unwrap_or_else(|| "origin".to_string());
@@ -122,7 +141,7 @@ fn get_interactive_config(
     // Bookmark prefix
     let bookmark_prefix = prompt("\nBookmark prefix (leave empty for none)", "")?;
 
-    Ok((trunk, remote, push_style, bookmark_prefix))
+    Ok((primary, remote, push_style, bookmark_prefix))
 }
 
 fn prompt(question: &str, default: &str) -> Result<String> {
@@ -173,7 +192,7 @@ fn prompt_choice(question: &str, choices: &[&str], default: &str) -> Result<Stri
 }
 
 fn create_config_content(
-    trunk: &str,
+    primary: &str,
     remote: &str,
     push_style: &str,
     bookmark_prefix: &str,
@@ -186,8 +205,8 @@ fn create_config_content(
 # Remote name
 name = "{}"
 
-# Main branch name
-trunk = "{}"
+# Primary branch name
+primary = "{}"
 
 [github]
 # Push style: "squash" (force-push) or "append" (incremental commits)
@@ -203,14 +222,14 @@ stack_context = true
 # Prefix for bookmarks (e.g., "jf/" creates bookmarks like "jf/my-feature")
 prefix = "{}"
 "#,
-        remote, trunk, push_style, bookmark_prefix
+        remote, primary, push_style, bookmark_prefix
     )
 }
 
-fn print_summary(trunk: &str, remote: &str, push_style: &str) {
+fn print_summary(primary: &str, remote: &str, push_style: &str) {
     println!("Configuration Summary:");
     println!("  Remote: {}", remote);
-    println!("  Main branch: {}", trunk);
+    println!("  Primary branch: {}", primary);
     println!("  Push style: {}", push_style);
 }
 
